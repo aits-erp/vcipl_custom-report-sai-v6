@@ -1,11 +1,13 @@
 frappe.query_reports["Custom Most selling item report which are out of stock"] = {
+    onload: function(report) {
+        report.set_filter_value("custom_item_type", "Finished Goods");   // default value
+    },
     filters: [
-        
         {
-            fieldname: "item_group",
-            label: __("Item Group"),
-            fieldtype: "Link",
-            options: "Item Group",
+            fieldname: "custom_item_type",
+            label: __("Item Type"),
+            fieldtype: "Data",
+            default: "Finished Goods",
             reqd: 0
         }
     ]

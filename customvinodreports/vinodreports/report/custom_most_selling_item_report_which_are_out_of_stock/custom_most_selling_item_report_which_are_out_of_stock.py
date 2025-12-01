@@ -49,6 +49,13 @@ def get_data(filters, warehouses):
         conditions += " AND i.item_group = %(item_group)s"
         params["item_group"] = filters["item_group"]
 
+    # 🔥 New filter added — custom_item_type (default Finished Goods)
+    if not filters.get("custom_item_type"):
+        filters["custom_item_type"] = "Finished Goods"   # default value
+
+    conditions += " AND i.custom_item_type = %(custom_item_type)s"
+    params["custom_item_type"] = filters["custom_item_type"]
+
     # Dynamic PIVOT SQL for warehouse wise qty
     warehouse_qty_columns = ", ".join([
         f"""SUM(CASE WHEN b.warehouse = '{wh}' THEN b.actual_qty ELSE 0 END) AS `{wh.lower().replace(" ", "_").replace("-", "_")}`"""
