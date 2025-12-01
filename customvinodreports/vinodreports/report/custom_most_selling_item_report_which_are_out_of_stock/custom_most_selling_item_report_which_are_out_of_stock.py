@@ -9,7 +9,6 @@ def execute(filters=None):
         {"label": "Item Code", "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 150},
         {"label": "Item Name", "fieldname": "item_name", "fieldtype": "Data", "width": 220},
         {"label": "Item Group", "fieldname": "item_group", "fieldtype": "Link", "options": "Item Group", "width": 150},
-
         {"label": "Total Sales Amount", "fieldname": "total_amount", "fieldtype": "Currency", "width": 150},
         {"label": "Total Sold Qty", "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
     ]
@@ -24,7 +23,7 @@ def execute(filters=None):
             "width": 120
         })
 
-    # safety stock and shortage columns
+    # Safety stock & shortage
     columns += [
         {"label": "Safety Stock", "fieldname": "safety_stock", "fieldtype": "Float", "width": 120},
         {"label": "Shortage Qty", "fieldname": "shortage_qty", "fieldtype": "Float", "width": 130},
@@ -49,19 +48,19 @@ def get_data(filters, warehouses):
         conditions += " AND i.item_group = %(item_group)s"
         params["item_group"] = filters["item_group"]
 
-    # 🔥 New filter added — custom_item_type (default Finished Goods)
+    # default custom_item_type = Finished Goods
     if not filters.get("custom_item_type"):
-        filters["custom_item_type"] = "Finished Goods"   # default value
-
+        filters["custom_item_type"] = "Finished Goods"
     conditions += " AND i.custom_item_type = %(custom_item_type)s"
     params["custom_item_type"] = filters["custom_item_type"]
 
-    # Dynamic PIVOT SQL for warehouse wise qty
+    # Pivot for warehouse qty
     warehouse_qty_columns = ", ".join([
         f"""SUM(CASE WHEN b.warehouse = '{wh}' THEN b.actual_qty ELSE 0 END) AS `{wh.lower().replace(" ", "_").replace("-", "_")}`"""
         for wh in warehouses
     ])
 
+    # 🔥 Important fix → aggregate tabBin stock before joining (no duplication)
     query = f"""
         SELECT
             sii.item_code,
@@ -71,15 +70,20 @@ def get_data(filters, warehouses):
             SUM(sii.amount) AS total_amount,
             SUM(sii.qty) AS total_qty,
 
-            {warehouse_qty_columns},  -- auto per warehouse qty
+            {warehouse_qty_columns},
 
             COALESCE(i.safety_stock, 0) AS safety_stock,
-            GREATEST(COALESCE(i.safety_stock, 0) - SUM(COALESCE(b.actual_qty, 0)), 0) AS shortage_qty
+            GREATEST(COALESCE(i.safety_stock, 0) -
+                     SUM(COALESCE(b.actual_qty, 0)), 0) AS shortage_qty
 
         FROM `tabSales Invoice Item` sii
         JOIN `tabSales Invoice` si ON si.name = sii.parent
         JOIN `tabItem` i ON i.name = sii.item_code
-        LEFT JOIN `tabBin` b ON b.item_code = i.name
+        LEFT JOIN (
+            SELECT item_code, warehouse, SUM(actual_qty) AS actual_qty
+            FROM `tabBin`
+            GROUP BY item_code, warehouse
+        ) b ON b.item_code = i.name
 
         WHERE 1 = 1
         {conditions}
