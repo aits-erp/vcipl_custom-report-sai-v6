@@ -1,5 +1,6 @@
 import frappe
 
+
 def execute(filters=None):
     if not filters:
         filters = {}
@@ -9,6 +10,7 @@ def execute(filters=None):
         {"label": "Item Code", "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 150},
         {"label": "Item Name", "fieldname": "item_name", "fieldtype": "Data", "width": 220},
         {"label": "Item Group", "fieldname": "item_group", "fieldtype": "Link", "options": "Item Group", "width": 150},
+
         {"label": "Total Sales Amount", "fieldname": "total_amount", "fieldtype": "Currency", "width": 150},
         {"label": "Total Sold Qty", "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
     ]
@@ -23,7 +25,7 @@ def execute(filters=None):
             "width": 120
         })
 
-    # Safety stock & shortage
+    # safety stock and shortage columns
     columns += [
         {"label": "Safety Stock", "fieldname": "safety_stock", "fieldtype": "Float", "width": 120},
         {"label": "Shortage Qty", "fieldname": "shortage_qty", "fieldtype": "Float", "width": 130},
@@ -48,49 +50,74 @@ def get_data(filters, warehouses):
         conditions += " AND i.item_group = %(item_group)s"
         params["item_group"] = filters["item_group"]
 
-    # default custom_item_type = Finished Goods
+    # 🔥 Filter on custom_item_type with default Finished Goods
     if not filters.get("custom_item_type"):
         filters["custom_item_type"] = "Finished Goods"
     conditions += " AND i.custom_item_type = %(custom_item_type)s"
     params["custom_item_type"] = filters["custom_item_type"]
 
-    # Pivot for warehouse qty
-    warehouse_qty_columns = ", ".join([
-        f"""SUM(CASE WHEN b.warehouse = '{wh}' THEN b.actual_qty ELSE 0 END) AS `{wh.lower().replace(" ", "_").replace("-", "_")}`"""
-        for wh in warehouses
-    ])
-
-    # 🔥 Important fix → aggregate tabBin stock before joining (no duplication)
-    query = f"""
+    # 1️⃣ Get sales summary per item (NO Bin join here)
+    sales_query = f"""
         SELECT
             sii.item_code,
             i.item_name,
             i.item_group,
-
             SUM(sii.amount) AS total_amount,
             SUM(sii.qty) AS total_qty,
-
-            {warehouse_qty_columns},
-
-            COALESCE(i.safety_stock, 0) AS safety_stock,
-            GREATEST(COALESCE(i.safety_stock, 0) -
-                     SUM(COALESCE(b.actual_qty, 0)), 0) AS shortage_qty
-
+            COALESCE(i.safety_stock, 0) AS safety_stock
         FROM `tabSales Invoice Item` sii
         JOIN `tabSales Invoice` si ON si.name = sii.parent
         JOIN `tabItem` i ON i.name = sii.item_code
-        LEFT JOIN (
-            SELECT item_code, warehouse, SUM(actual_qty) AS actual_qty
-            FROM `tabBin`
-            GROUP BY item_code, warehouse
-        ) b ON b.item_code = i.name
-
         WHERE 1 = 1
         {conditions}
-
-        GROUP BY sii.item_code
+        GROUP BY sii.item_code, i.item_name, i.item_group, i.safety_stock
         ORDER BY total_amount DESC
         LIMIT 100
     """
 
-    return frappe.db.sql(query, params, as_dict=True)
+    sales_rows = frappe.db.sql(sales_query, params, as_dict=True)
+
+    if not sales_rows:
+        return []
+
+    # list of item codes we care about
+    item_codes = [row["item_code"] for row in sales_rows]
+
+    # 2️⃣ Read current stock from Bin per item + warehouse
+    bin_filters = {"item_code": ["in", item_codes]}
+    bins = frappe.get_all(
+        "Bin",
+        filters=bin_filters,
+        fields=["item_code", "warehouse", "actual_qty"],
+    )
+
+    # Build maps:
+    # - stock_map[(item_code, warehouse)] = qty
+    # - total_stock[item_code] = sum of all warehouses
+    stock_map = {}
+    total_stock = frappe._dict()
+
+    for b in bins:
+        key = (b.item_code, b.warehouse)
+        stock_map[key] = b.actual_qty
+        total_stock.setdefault(b.item_code, 0)
+        total_stock[b.item_code] += b.actual_qty
+
+    # 3️⃣ Attach per-warehouse qty + shortage to each row
+    for row in sales_rows:
+        item_code = row["item_code"]
+
+        # per-warehouse columns
+        for wh in warehouses:
+            fieldname = wh.lower().replace(" ", "_").replace("-", "_")
+            row[fieldname] = stock_map.get((item_code, wh), 0)
+
+        # safety stock already in row
+        safety_stock = row.get("safety_stock") or 0
+        available_qty = total_stock.get(item_code, 0)
+
+        # shortage = safety stock - total available qty (not per warehouse)
+        shortage = safety_stock - available_qty
+        row["shortage_qty"] = shortage if shortage > 0 else 0
+
+    return sales_rows
