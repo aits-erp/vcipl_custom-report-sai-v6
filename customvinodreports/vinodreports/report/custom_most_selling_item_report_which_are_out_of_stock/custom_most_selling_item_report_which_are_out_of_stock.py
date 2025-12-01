@@ -18,14 +18,23 @@ def execute(filters=None):
     # Add per-warehouse qty columns dynamically
     warehouses = frappe.get_all("Warehouse", pluck="name")
     for wh in warehouses:
+        fieldname = wh.lower().replace(" ", "_").replace("-", "_")
         columns.append({
             "label": f"{wh} Qty",
-            "fieldname": wh.lower().replace(" ", "_").replace("-", "_"),
+            "fieldname": fieldname,
             "fieldtype": "Float",
             "width": 120
         })
 
-    # safety stock and shortage columns
+    # ➤ New total of all warehouses column
+    columns.append({
+        "label": "All Warehouses Total Qty",
+        "fieldname": "total_stock_qty",
+        "fieldtype": "Float",
+        "width": 150
+    })
+
+    # Safety stock and shortage columns
     columns += [
         {"label": "Safety Stock", "fieldname": "safety_stock", "fieldtype": "Float", "width": 120},
         {"label": "Shortage Qty", "fieldname": "shortage_qty", "fieldtype": "Float", "width": 130},
@@ -50,13 +59,13 @@ def get_data(filters, warehouses):
         conditions += " AND i.item_group = %(item_group)s"
         params["item_group"] = filters["item_group"]
 
-    # 🔥 Filter on custom_item_type with default Finished Goods
+    # Filter on custom_item_type with default Finished Goods
     if not filters.get("custom_item_type"):
         filters["custom_item_type"] = "Finished Goods"
     conditions += " AND i.custom_item_type = %(custom_item_type)s"
     params["custom_item_type"] = filters["custom_item_type"]
 
-    # 1️⃣ Get sales summary per item (NO Bin join here)
+    # Sales summary query
     sales_query = f"""
         SELECT
             sii.item_code,
@@ -80,20 +89,15 @@ def get_data(filters, warehouses):
     if not sales_rows:
         return []
 
-    # list of item codes we care about
     item_codes = [row["item_code"] for row in sales_rows]
 
-    # 2️⃣ Read current stock from Bin per item + warehouse
-    bin_filters = {"item_code": ["in", item_codes]}
+    # Read current stock from Bin per item + warehouse
     bins = frappe.get_all(
         "Bin",
-        filters=bin_filters,
+        filters={"item_code": ["in", item_codes]},
         fields=["item_code", "warehouse", "actual_qty"],
     )
 
-    # Build maps:
-    # - stock_map[(item_code, warehouse)] = qty
-    # - total_stock[item_code] = sum of all warehouses
     stock_map = {}
     total_stock = frappe._dict()
 
@@ -103,20 +107,21 @@ def get_data(filters, warehouses):
         total_stock.setdefault(b.item_code, 0)
         total_stock[b.item_code] += b.actual_qty
 
-    # 3️⃣ Attach per-warehouse qty + shortage to each row
+    # Attach per-warehouse qty, total qty & shortage
     for row in sales_rows:
         item_code = row["item_code"]
 
-        # per-warehouse columns
+        # Per warehouse qty
         for wh in warehouses:
             fieldname = wh.lower().replace(" ", "_").replace("-", "_")
             row[fieldname] = stock_map.get((item_code, wh), 0)
 
-        # safety stock already in row
-        safety_stock = row.get("safety_stock") or 0
         available_qty = total_stock.get(item_code, 0)
 
-        # shortage = safety stock - total available qty (not per warehouse)
+        # ➤ New total of all warehouses field
+        row["total_stock_qty"] = available_qty
+
+        safety_stock = row.get("safety_stock") or 0
         shortage = safety_stock - available_qty
         row["shortage_qty"] = shortage if shortage > 0 else 0
 
