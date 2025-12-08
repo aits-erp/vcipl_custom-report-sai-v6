@@ -1,0 +1,91 @@
+/* -------- Ocean Blue & White Theme -------- */
+:root {
+    --ocean-blue: #0077b6;
+    --ocean-light: #0096c7;
+    --ocean-hover: #00b4d8;
+    --ocean-bg: #e9f7ff;
+    --white: #ffffff;
+    --dark-text: #1c2942;
+    --light-text: #3e4a63;
+    --radius: 7px;
+}
+
+/* Overall Background */
+body {
+    background: var(--ocean-bg) !important;
+    color: var(--dark-text);
+}
+
+/* Top Navbar */
+.navbar {
+    background: var(--ocean-blue) !important;
+}
+.navbar a, .navbar-brand {
+    color: var(--white) !important;
+}
+
+/* Sidebar */
+.layout-side-section {
+    background: var(--white) !important;
+    border-right: 2px solid var(--ocean-blue);
+}
+.standard-sidebar-item a {
+    color: var(--light-text) !important;
+}
+.standard-sidebar-item a:hover {
+    color: var(--ocean-blue) !important;
+    font-weight: 600;
+}
+
+/* Buttons */
+.btn-primary, .btn-primary:hover, .btn-primary:focus {
+    background: var(--ocean-blue) !important;
+    border-radius: var(--radius);
+    border: none;
+}
+.btn-secondary {
+    background: var(--ocean-light);
+    color: var(--white);
+    border-radius: var(--radius);
+}
+.btn:hover {
+    filter: brightness(1.1);
+}
+
+/* Cards / Sections / Form */
+.form-section, .frappe-card {
+    background: var(--white) !important;
+    border-radius: var(--radius);
+    border: 1px solid #d6eaff;
+}
+.form-control, .input-with-feedback {
+    border-radius: var(--radius);
+    border: 1px solid #aacbe9;
+}
+.form-control:focus {
+    border-color: var(--ocean-light) !important;
+    box-shadow: 0 0 0 1px var(--ocean-light) !important;
+}
+
+/* Table */
+.grid-row, .data-row {
+    background: var(--white);
+}
+.grid-row:hover, .data-row:hover {
+    background: #dff6ff !important;
+}
+
+/* Notification Badge */
+.navbar .indicator {
+    background: var(--ocean-hover) !important;
+}
+
+/* Login / Desk Background */
+.desk-container {
+    background: var(--ocean-bg) !important;
+}
+
+/* Awesome Hover Animation */
+a, .btn {
+    transition: 0.25s ease-in-out;
+}
